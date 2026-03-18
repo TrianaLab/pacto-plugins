@@ -34,7 +34,7 @@ jobs:
           plugin-dir: ${{ matrix.plugin }}
 
   coverage:
-    needs: ci
+    needs: [discover, ci]
     runs-on: ubuntu-latest
     strategy:
       matrix:
