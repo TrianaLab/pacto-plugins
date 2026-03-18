@@ -1,0 +1,36 @@
+name: CI (PR)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.go'
+      - '**/go.mod'
+      - '**/go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.list.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - id: list
+        run: |
+          plugins=$(ls -d plugins/*/ | sed 's:/$::' | jq -R -s -c 'split("\n")[:-1]')
+          echo "plugins=$plugins" >> $GITHUB_OUTPUT
+
+  ci:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: ./.github/actions/ci
+        with:
+          plugin-dir: ${{ matrix.plugin }}

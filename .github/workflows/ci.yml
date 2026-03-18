@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.list.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - id: list
+        run: |
+          plugins=$(ls -d plugins/*/ | sed 's:/$::' | jq -R -s -c 'split("\n")[:-1]')
+          echo "plugins=$plugins" >> $GITHUB_OUTPUT
+
+  ci:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: ./.github/actions/ci
+        with:
+          plugin-dir: ${{ matrix.plugin }}
+
+  coverage:
+    needs: ci
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: '1.25'
+
+      - uses: actions/cache@v5.0.3
+        with:
+          path: |
+            ~/.cache/go-build
+            ${{ env.GOPATH }}/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run tests with coverage
+        run: |
+          cd ${{ matrix.plugin }}
+          go test $(go list ./... | grep -v /tests/) -coverprofile=coverage.txt
+
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v5.5.2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: ${{ matrix.plugin }}
+          files: ${{ matrix.plugin }}/coverage.txt

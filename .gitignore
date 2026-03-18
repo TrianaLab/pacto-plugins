@@ -1,0 +1,7 @@
+dist/
+*.exe
+__pycache__/
+*.pyc
+coverage.out
+coverage.html
+coverage.txt

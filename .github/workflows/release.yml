@@ -1,0 +1,68 @@
+name: Build and publish release binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.list.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - id: list
+        run: |
+          plugins=$(ls -d plugins/*/ | sed 's:/$::' | jq -R -s -c 'split("\n")[:-1]')
+          echo "plugins=$plugins" >> $GITHUB_OUTPUT
+
+  build:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: actions/setup-go@v6.3.0
+        with:
+          go-version: '1.25'
+
+      - name: Build binary
+        id: build
+        run: |
+          plugin_name=$(basename ${{ matrix.plugin }})
+          output="${plugin_name}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then output="${output}.exe"; fi
+          mkdir -p dist
+          cd ${{ matrix.plugin }}
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -ldflags "-s -w -X main.version=${{ github.event.release.tag_name }}" -o ${GITHUB_WORKSPACE}/dist/${output} ./cmd/
+          echo "plugin_name=${plugin_name}" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.plugin_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          files: dist/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
