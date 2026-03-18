@@ -38,33 +38,41 @@ type BodyRef struct {
 
 // Route represents an extracted HTTP route.
 type Route struct {
-	Method  string // GET, POST, PUT, DELETE, PATCH
-	Path    string // OpenAPI path: /users/{id}
-	Summary string
-	Params  []Param
-	ReqBody *BodyRef
-	ResBody *BodyRef
+	Method          string // GET, POST, PUT, DELETE, PATCH
+	Path            string // OpenAPI path: /users/{id}
+	Summary         string
+	OperationId     string
+	Params          []Param
+	ReqBody         *BodyRef
+	ResBody         *BodyRef
+	DefaultErrorRef string // schema name for default error response
 }
 
 // Field represents a property in a schema.
 type Field struct {
-	Name    string
-	Type    string // OpenAPI type or schema name
-	IsArray bool
+	Name          string
+	Type          string // OpenAPI type or schema name
+	IsArray       bool
+	Description   string
+	Format        string
+	MinItems      int
+	NullableArray bool // renders type as ["array", "null"]
 }
 
 // Schema represents an extracted data model.
 type Schema struct {
-	Name   string
-	Fields []Field
+	Name                 string
+	Fields               []Field
+	AdditionalProperties *bool
 }
 
 // Result holds all extracted API information.
 type Result struct {
-	Framework Framework
-	Info      AppInfo
-	Routes    []Route
-	Schemas   []Schema
+	Framework  Framework
+	Info       AppInfo
+	Routes     []Route
+	Schemas    []Schema
+	RawSchemas map[string]any // pre-built schemas (e.g., error models)
 }
 
 // BuildSpec constructs an OpenAPI 3.1.0 spec from a Result in the given format.
@@ -97,9 +105,16 @@ func BuildSpec(r *Result, format ...OutputFormat) (string, error) {
 	paths := buildPaths(r.Routes)
 	spec["paths"] = paths
 
+	schemas := map[string]any{}
 	if len(r.Schemas) > 0 {
+		schemas = buildSchemas(r.Schemas)
+	}
+	for k, v := range r.RawSchemas {
+		schemas[k] = v
+	}
+	if len(schemas) > 0 {
 		spec["components"] = map[string]any{
-			"schemas": buildSchemas(r.Schemas),
+			"schemas": schemas,
 		}
 	}
 
@@ -125,6 +140,9 @@ func buildPaths(routes []Route) map[string]any {
 		}
 
 		op := map[string]any{}
+		if route.OperationId != "" {
+			op["operationId"] = route.OperationId
+		}
 		if route.Summary != "" {
 			op["summary"] = route.Summary
 		}
@@ -155,7 +173,7 @@ func buildPaths(routes []Route) map[string]any {
 			}
 		}
 
-		resp := map[string]any{"description": "Successful response"}
+		resp := map[string]any{"description": "OK"}
 		if route.ResBody != nil {
 			schema := refOrType(route.ResBody.Name)
 			if route.ResBody.IsArray {
@@ -165,7 +183,22 @@ func buildPaths(routes []Route) map[string]any {
 				"application/json": map[string]any{"schema": schema},
 			}
 		}
-		op["responses"] = map[string]any{"200": resp}
+		responses := map[string]any{"200": resp}
+
+		if route.DefaultErrorRef != "" {
+			responses["default"] = map[string]any{
+				"description": "Error",
+				"content": map[string]any{
+					"application/problem+json": map[string]any{
+						"schema": map[string]any{
+							"$ref": "#/components/schemas/" + route.DefaultErrorRef,
+						},
+					},
+				},
+			}
+		}
+
+		op["responses"] = responses
 
 		paths[route.Path].(map[string]any)[strings.ToLower(route.Method)] = op
 	}
@@ -181,14 +214,7 @@ func buildSchemas(schemas []Schema) map[string]any {
 		var required []string
 
 		for _, f := range s.Fields {
-			if f.IsArray {
-				props[f.Name] = map[string]any{
-					"type":  "array",
-					"items": refOrType(f.Type),
-				}
-			} else {
-				props[f.Name] = refOrType(f.Type)
-			}
+			props[f.Name] = buildFieldProp(f)
 			required = append(required, f.Name)
 		}
 
@@ -199,10 +225,44 @@ func buildSchemas(schemas []Schema) map[string]any {
 		if len(required) > 0 {
 			schema["required"] = required
 		}
+		if s.AdditionalProperties != nil {
+			schema["additionalProperties"] = *s.AdditionalProperties
+		}
 		result[s.Name] = schema
 	}
 
 	return result
+}
+
+func buildFieldProp(f Field) map[string]any {
+	if f.IsArray {
+		items := refOrType(f.Type)
+		if f.Format != "" {
+			items["format"] = f.Format
+		}
+		prop := map[string]any{"items": items}
+		if f.NullableArray {
+			prop["type"] = []any{"array", "null"}
+		} else {
+			prop["type"] = "array"
+		}
+		if f.Description != "" {
+			prop["description"] = f.Description
+		}
+		if f.MinItems > 0 {
+			prop["minItems"] = f.MinItems
+		}
+		return prop
+	}
+
+	prop := refOrType(f.Type)
+	if f.Description != "" {
+		prop["description"] = f.Description
+	}
+	if f.Format != "" {
+		prop["format"] = f.Format
+	}
+	return prop
 }
 
 func refOrType(name string) map[string]any {
@@ -220,3 +280,5 @@ func marshalYAML(v any) (string, error) {
 	}
 	return string(out), nil
 }
+
+func boolPtr(b bool) *bool { return &b }
