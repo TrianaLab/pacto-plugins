@@ -53,6 +53,18 @@ func main() {
 		format = infer.FormatJSON
 	}
 
+	// Allow overriding the source directory via --option source=DIR.
+	// This is useful when the Go/Python source lives outside the bundle
+	// directory (e.g., repo root vs pactos/my-bundle/).
+	sourceDir := req.BundleDir
+	if src, _ := req.Options["source"].(string); src != "" {
+		if filepath.IsAbs(src) {
+			sourceDir = src
+		} else {
+			sourceDir = filepath.Join(req.BundleDir, src)
+		}
+	}
+
 	var spec string
 	var fw infer.Framework
 	var err error
@@ -60,9 +72,9 @@ func main() {
 	// Allow explicit framework override via --option framework=X.
 	if fwStr, _ := req.Options["framework"].(string); fwStr != "" {
 		fw = infer.Framework(strings.ToLower(fwStr))
-		spec, err = infer.InferWithFramework(req.BundleDir, fw, format)
+		spec, err = infer.InferWithFramework(sourceDir, fw, format)
 	} else {
-		spec, fw, err = infer.Infer(req.BundleDir, format)
+		spec, fw, err = infer.Infer(sourceDir, format)
 	}
 
 	if err != nil {

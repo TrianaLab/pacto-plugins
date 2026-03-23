@@ -81,6 +81,24 @@ pacto generate openapi-infer . --option output=interfaces/openapi.json
 pacto generate openapi-infer . --option output=api/spec.yaml
 ```
 
+### `source` (optional)
+
+Path to the directory containing the source code to scan. This is useful when
+the source code lives outside the bundle directory (e.g., the Go source is at
+the repository root while the bundle is in `pactos/my-service/`).
+
+- **Default**: the bundle directory itself
+- Relative paths are resolved relative to the bundle directory
+- Absolute paths are used as-is
+
+```bash
+# Source code is two levels up from the bundle directory
+pacto generate openapi-infer pactos/my-service --option source=../..
+
+# Absolute path
+pacto generate openapi-infer pactos/my-service --option source=/path/to/repo
+```
+
 ### `framework` (optional)
 
 Override automatic framework detection. Useful when the project has
