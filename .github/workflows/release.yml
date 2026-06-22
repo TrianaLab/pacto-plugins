@@ -60,6 +60,14 @@ jobs:
           path: dist/
           merge-multiple: true
 
+      # `pacto update` verifies each plugin binary against checksums.txt before
+      # installing it; without this asset the update fails with a 404. Mirrors
+      # the pacto CLI's own release (sha256sum over the flat dist dir).
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2.5.0
         with:
